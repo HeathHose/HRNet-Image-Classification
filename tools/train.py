@@ -45,6 +45,11 @@ def parse_args():
                         required=True,
                         type=str)
 
+    parser.add_argument('opts',
+                        help="Modify config options using the command-line",
+                        default=None,
+                        nargs=argparse.REMAINDER)
+
     parser.add_argument('--modelDir',
                         help='model directory',
                         type=str,
