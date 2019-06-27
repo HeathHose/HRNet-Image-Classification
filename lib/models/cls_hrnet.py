@@ -102,6 +102,44 @@ class Bottleneck(nn.Module):
 
         return out
 
+class ResidualBottleneck(nn.Module):
+    expansion = 4
+    spatial_attention_channel = 1
+
+    def __init__(self, inplanes, planes):
+        super(ResidualBottleneck, self).__init__()
+        if inplanes != planes:
+            error_msg = 'inplanes({}) <> planes({})'.format(
+                inplanes, planes)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        channel_attention_channel = planes
+        self.conv1 = nn.Conv2d(inplanes, self.spatial_attention_channel, kernel_size=1, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+        self.fc1 = nn.Linear(channel_attention_channel,channel_attention_channel)
+        # inplace设为false，否则会影响原增量的值
+        self.relu = nn.ReLU(inplace=False)
+        self.fc2 = nn.Linear(channel_attention_channel, channel_attention_channel)
+        self.sigmoid2 = nn.Sigmoid()
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.sigmoid(out)
+        out = residual*out
+
+        scale = out
+        out = F.avg_pool2d(out,out.size(),stride=1)
+        out = self.fc1(out)
+        out = self.relu(out)
+        out = self.fc2(out)
+        out = self.sigmoid2(out)
+        scale = scale*out
+
+        residual += scale
+        return residual
 
 class HighResolutionModule(nn.Module):
     def __init__(self, num_branches, blocks, num_blocks, num_inchannels,
@@ -263,7 +301,7 @@ class HighResolutionNet(nn.Module):
                                bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(Bottleneck, 64, 64, 4)
+        self.layer1 = self._make_layer(ResidualBottleneck, 64, 64, 4)
 
         self.stage2_cfg = cfg['MODEL']['EXTRA']['STAGE2']
         num_channels = self.stage2_cfg['NUM_CHANNELS']
@@ -302,7 +340,7 @@ class HighResolutionNet(nn.Module):
         self.classifier = nn.Linear(2048, 1000)
 
     def _make_head(self, pre_stage_channels):
-        head_block = Bottleneck
+        head_block = ResidualBottleneck
         head_channels = [32, 64, 128, 256]
 
         # Increasing the #channels on each resolution 
