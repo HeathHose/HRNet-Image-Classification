@@ -105,7 +105,7 @@ class Bottleneck(nn.Module):
 class ResidualBottleneck(nn.Module):
     expansion = 1
     spatial_attention_channel = 1
-
+    channel_attention_features = 1
     def __init__(self, inplanes, planes,stride=1, downsample=None):
         super(ResidualBottleneck, self).__init__()
 
@@ -115,14 +115,13 @@ class ResidualBottleneck(nn.Module):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        channel_attention_channel = inplanes
         self.conv1 = nn.Conv2d(inplanes, self.spatial_attention_channel, kernel_size=1, bias=False)
         self.sigmoid = nn.Sigmoid()
 
-        self.fc1 = nn.Linear(channel_attention_channel,channel_attention_channel)
+        self.fc1 = nn.Linear(self.channel_attention_features,self.channel_attention_features)
         # inplace设为false，否则会影响原增量的值
         self.relu = nn.ReLU(inplace=False)
-        self.fc2 = nn.Linear(channel_attention_channel, channel_attention_channel)
+        self.fc2 = nn.Linear(self.channel_attention_features, self.channel_attention_features)
         self.sigmoid2 = nn.Sigmoid()
         self.stride = 1
         self.downsample = downsample
@@ -317,7 +316,7 @@ class HighResolutionNet(nn.Module):
         num_channels = [
             num_channels[i] * block.expansion for i in range(len(num_channels))]
         self.transition1 = self._make_transition_layer(
-            [256], num_channels)
+            [64], num_channels)
         self.stage2, pre_stage_channels = self._make_stage(
             self.stage2_cfg, num_channels)
 
