@@ -103,17 +103,19 @@ class Bottleneck(nn.Module):
         return out
 
 class ResidualBottleneck(nn.Module):
-    expansion = 4
+    expansion = 1
     spatial_attention_channel = 1
 
-    def __init__(self, inplanes, planes):
+    def __init__(self, inplanes, planes,stride=1, downsample=None):
         super(ResidualBottleneck, self).__init__()
-        if inplanes != planes:
-            error_msg = 'inplanes({}) <> planes({})'.format(
+
+        if inplanes != planes and downsample == None:
+            error_msg = 'inplanes({}) <> planes({}) while downsample == None'.format(
                 inplanes, planes)
             logger.error(error_msg)
             raise ValueError(error_msg)
-        channel_attention_channel = planes
+
+        channel_attention_channel = inplanes
         self.conv1 = nn.Conv2d(inplanes, self.spatial_attention_channel, kernel_size=1, bias=False)
         self.sigmoid = nn.Sigmoid()
 
@@ -122,6 +124,8 @@ class ResidualBottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=False)
         self.fc2 = nn.Linear(channel_attention_channel, channel_attention_channel)
         self.sigmoid2 = nn.Sigmoid()
+        self.stride = 1
+        self.downsample = downsample
 
     def forward(self, x):
         residual = x
@@ -131,7 +135,7 @@ class ResidualBottleneck(nn.Module):
         out = residual*out
 
         scale = out
-        out = F.avg_pool2d(out,out.size(),stride=1)
+        out = F.avg_pool2d(out,out.size()[2:],stride=1)
         out = self.fc1(out)
         out = self.relu(out)
         out = self.fc2(out)
@@ -139,6 +143,10 @@ class ResidualBottleneck(nn.Module):
         scale = scale*out
 
         residual += scale
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
         return residual
 
 class HighResolutionModule(nn.Module):
