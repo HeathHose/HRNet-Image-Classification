@@ -141,9 +141,9 @@ def update_config(cfg, args):
     if args.testModel:
         cfg.TEST.MODEL_FILE = args.testModel
 
-    cfg.DATASET.ROOT = os.path.join(
-        cfg.DATA_DIR, cfg.DATASET.DATASET, 'images')
-
+    # cfg.DATASET.ROOT = os.path.join(
+    #     cfg.DATA_DIR, cfg.DATASET.DATASET, 'images')
+    cfg.DATASET.ROOT = "/media/supermary/HuAndrew/datasets/imagenet/ILSVRC2012/"
     cfg.freeze()
 
 
