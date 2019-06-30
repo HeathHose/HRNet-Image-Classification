@@ -141,12 +141,14 @@ class ResidualBottleneck(nn.Module):
         out = self.sigmoid2(out)
         scale = scale*out
 
-        residual += scale
+        scale += residual
 
         if self.downsample is not None:
-            residual = self.downsample(x)
+            scale = self.downsample(scale)
 
-        return residual
+        scale = self.relu(scale)
+
+        return scale
 
 class HighResolutionModule(nn.Module):
     def __init__(self, num_branches, blocks, num_blocks, num_inchannels,
