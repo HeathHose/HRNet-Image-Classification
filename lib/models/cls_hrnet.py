@@ -98,54 +98,71 @@ class Bottleneck(nn.Module):
             residual = self.downsample(x)
 
         out += residual
+
         out = self.relu(out)
 
         return out
 
-class ResidualBottleneck(nn.Module):
+class AttentionBottleneck(nn.Module):
     expansion = 1
     spatial_attention_channel = 1
     channel_attention_features = 1
     def __init__(self, inplanes, planes,stride=1, downsample=None):
-        super(ResidualBottleneck, self).__init__()
+        super(AttentionBottleneck, self).__init__()
 
-        if inplanes != planes and downsample == None:
-            error_msg = 'inplanes({}) <> planes({}) while downsample == None'.format(
-                inplanes, planes)
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1,
+                               bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion,
+                               momentum=BN_MOMENTUM)
+        self.relu = nn.ReLU(inplace=True)
 
-        self.conv1 = nn.Conv2d(inplanes, self.spatial_attention_channel, kernel_size=1, bias=False)
+        self.conv4 = nn.Conv2d(inplanes, self.spatial_attention_channel, kernel_size=1, bias=False)
         self.sigmoid = nn.Sigmoid()
 
         self.fc1 = nn.Linear(self.channel_attention_features,self.channel_attention_features)
-        # inplace设为false，否则会影响原增量的值
-        self.relu = nn.ReLU(inplace=False)
         self.fc2 = nn.Linear(self.channel_attention_features, self.channel_attention_features)
-        self.sigmoid2 = nn.Sigmoid()
+
         self.stride = 1
         self.downsample = downsample
 
     def forward(self, x):
-        residual = x
-
+        ##Residual Bottleneck
+        identity = x
         out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+        residual = out
+
+        ##Spatial Attention
+        out = self.conv4(out)
         out = self.sigmoid(out)
         out = residual*out
-
         scale = out
+
+        ##Channel-wise Attention
         out = F.avg_pool2d(out,out.size()[2:],stride=1)
         out = self.fc1(out)
         out = self.relu(out)
         out = self.fc2(out)
-        out = self.sigmoid2(out)
+        out = self.sigmoid(out)
         scale = scale*out
 
-        scale += residual
-
         if self.downsample is not None:
-            scale = self.downsample(scale)
+            identity = self.downsample(x)
 
+        scale += identity
         scale = self.relu(scale)
 
         return scale
@@ -310,7 +327,7 @@ class HighResolutionNet(nn.Module):
                                bias=False)
         self.bn2 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(ResidualBottleneck, 64, 64, 4)
+        self.layer1 = self._make_layer(AttentionBottleneck, 64, 64, 4)
 
         self.stage2_cfg = cfg['MODEL']['EXTRA']['STAGE2']
         num_channels = self.stage2_cfg['NUM_CHANNELS']
@@ -349,7 +366,7 @@ class HighResolutionNet(nn.Module):
         self.classifier = nn.Linear(2048, 1000)
 
     def _make_head(self, pre_stage_channels):
-        head_block = ResidualBottleneck
+        head_block = AttentionBottleneck
         head_channels = [32, 64, 128, 256]
 
         # Increasing the #channels on each resolution 
