@@ -104,7 +104,7 @@ class Bottleneck(nn.Module):
         return out
 
 class AttentionBottleneck(nn.Module):
-    expansion = 1
+    expansion = 4
     spatial_attention_channel = 1
     channel_attention_features = 1
     def __init__(self, inplanes, planes,stride=1, downsample=None):
@@ -335,7 +335,7 @@ class HighResolutionNet(nn.Module):
         num_channels = [
             num_channels[i] * block.expansion for i in range(len(num_channels))]
         self.transition1 = self._make_transition_layer(
-            [64], num_channels)
+            [256], num_channels)
         self.stage2, pre_stage_channels = self._make_stage(
             self.stage2_cfg, num_channels)
 
