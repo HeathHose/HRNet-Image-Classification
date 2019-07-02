@@ -121,7 +121,7 @@ class AttentionBottleneck(nn.Module):
                                momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
 
-        self.conv4 = nn.Conv2d(inplanes, self.spatial_attention_channel, kernel_size=1, bias=False)
+        self.conv4 = nn.Conv2d(planes * self.expansion, self.spatial_attention_channel, kernel_size=1, bias=False)
         self.sigmoid = nn.Sigmoid()
 
         self.fc1 = nn.Linear(self.channel_attention_features,self.channel_attention_features)
