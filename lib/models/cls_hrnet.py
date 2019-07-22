@@ -244,6 +244,66 @@ class HighResolutionModule(nn.Module):
 
         return x_fuse
 
+class NAS_FPNModule(nn.Module):
+    FPN_CHANNEL = 384
+    def __init__(self, num_inchannels, num_channels):
+        super(NAS_FPNModule, self).__init__()
+        self.sigmoid = nn.Sigmoid()
+
+    def gp(self, fm1, fm2):
+        h, w = fm2.size()
+        global_ctx = fm1.mean(axis=[1, 2], keep_dims=True)
+        global_ctx = self.sigmoid(global_ctx)
+        output = (global_ctx * fm2) + F.upsample(fm1, fm2.size(), mode='bilinear', align_corners=False)
+        return output
+
+    def forward(self, *input):
+        pass
+
+class FPNModule(nn.Module):
+    FPN_CHANNEL = 384
+    def __init__(self, num_inchannels, num_channels):
+        super(FPNModule, self).__init__()
+        self.conv1 = nn.Conv2d(num_inchannels[-1], num_channels[-1], kernel_size=1, stride=1)
+
+        self.reduce_dim = self._make_reduce_dim(num_inchannels, num_channels)
+        self.fusion_pyramid = self._make_fusion_two_layer(num_inchannels, num_channels)
+        self.avg_pool = nn.AvgPool2d(kernel_size=[1, 1], stride=2)
+
+    def _make_reduce_dim(self, num_inchannels, num_channels):
+        reduce_dim_layers = []
+        for i in range(num_inchannels, 1, -1):
+            reduce_dim_layer = nn.Conv2d(num_inchannels[i], num_channels[i], kernel_size=1, stride=1)
+            reduce_dim_layers.append(reduce_dim_layer)
+            if i == len(num_inchannels) - 1:
+                reduce_dim_layers.append(None)
+        return nn.ModuleList(reduce_dim_layers)
+
+    def _make_fusion_pyramid(self, num_inchannels, num_channels):
+        fusion_pyramid_layers = []
+        for i in range(num_inchannels+1, 1, -1):
+            fusion_pyramid_layer = nn.Sequential(
+                nn.Conv2d(num_inchannels[i], num_channels[i], kernel_size=1, stride=1),
+                nn.ReLU(inplace=True)
+            )
+            fusion_pyramid_layers.append(fusion_pyramid_layer)
+        return nn.ModuleList(fusion_pyramid_layers)
+
+    def forward(self, x):
+        #
+        pyramid_dict = {}
+        P5 = self.conv1(x[3])
+        pyramid_dict["P5"] = P5
+        for level in range(4, 1, -1):  # build [P4, P3, P2]
+            upsample_p = F.upsample(pyramid_dict["P%d" % (level + 1)], x[level-1].size(), mode='bilinear', align_corners=False)
+            pyramid_dict['P%d' % level] = 0.5*upsample_p + 0.5*self.reduce_dim[level](x[level-1])
+
+        for level in range(5, 1, -1):
+            pyramid_dict['P%d' % level] = self.fusion_pyramid[level](pyramid_dict["P%d" % (level + 1)])
+        # Default P6 exists
+        pyramid_dict["P6"] = self.avg_pool(P5)
+        return pyramid_dict
+
 
 blocks_dict = {
     'BASIC': BasicBlock,
@@ -295,9 +355,15 @@ class HighResolutionNet(nn.Module):
         self.stage4, pre_stage_channels = self._make_stage(
             self.stage4_cfg, num_channels, multi_scale_output=True)
 
+        self.fpn_cfg = cfg['MODEL']['EXTRA']['FPN']
+        self.fpn, pre_fpn_channels = self._make_fpn(self.fpn_cfg, pre_stage_channels)
+
+        self.nas_fpn_cfg = cfg['MODEL']['EXTRA']['NAS_FPN']
+        self.nas_fpn, pre_nas_fpn_channels = self._make_nas_fpn(self.nas_fpn_cfg, pre_fpn_channels)
+
         # Classification Head
         self.incre_modules, self.downsamp_modules, \
-            self.final_layer = self._make_head(pre_stage_channels)
+            self.final_layer = self._make_head(pre_nas_fpn_channels)
 
         self.classifier = nn.Linear(2048, 1000)
 
@@ -433,6 +499,26 @@ class HighResolutionNet(nn.Module):
 
         return nn.Sequential(*modules), num_inchannels
 
+    def _make_fpn(self, layer_config, num_inchannels):
+        num_modules = layer_config["NUM_MOULES"]
+        num_channels = layer_config['NUM_CHANNELS']
+        modules = []
+        for i in range(num_modules):
+            modules.append(
+                FPNModule(num_inchannels, num_channels)
+        )
+        return nn.Sequential(*modules), num_channels
+
+    def _make_nas_fpn(self, layer_config, num_inchannels):
+        num_modules = layer_config["NUM_MOULES"]
+        num_channels = layer_config['NUM_CHANNELS']
+        modules = []
+        for i in range(num_modules):
+            modules.append(
+                NAS_FPNModule(num_inchannels, num_channels)
+            )
+        return nn.Sequential(*modules), num_channels
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -465,6 +551,9 @@ class HighResolutionNet(nn.Module):
             else:
                 x_list.append(y_list[i])
         y_list = self.stage4(x_list)
+
+        y_list = self.fpn(y_list)
+        y_list = self.nas_fpn(y_list)
 
         # Classification Head
         y = self.incre_modules[0](y_list[0])
