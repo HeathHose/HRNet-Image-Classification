@@ -1,4 +1,4 @@
-GPUS: (0,1,2,3)
+GPUS: (1,)
 LOG_DIR: 'log/'
 DATA_DIR: ''
 OUTPUT_DIR: 'output/'
@@ -52,18 +52,19 @@ MODEL:
       FUSE_METHOD: SUM
     FPN:
       NUM_CHANNELS:
-        - 256
-        - 256
-        - 256
-        - 256
+      - 256
+      - 256
+      - 256
+      - 256
       NUM_MOULES: 1
     NAS_FPN:
       NUM_CHANNELS:
-        - 256
-        - 256
-        - 256
-        - 256
-    NUM_MOULES: 7
+      - 256
+      - 256
+      - 256
+      - 256
+      - 256
+      NUM_MOULES: 7
 CUDNN:
   BENCHMARK: true
   DETERMINISTIC: false

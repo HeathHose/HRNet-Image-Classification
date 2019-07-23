@@ -67,7 +67,10 @@ def get_model_summary(model, *input_tensors, item_length=26, verbose=False):
                 input = input[0]
             if isinstance(output, list):
                 output = output[0]
+            if isinstance(output, dict):
+                logging.info("跳过对FPN、NAS_FPN的输出检查")
 
+                return
             summary.append(
                 ModuleDetails(
                     name=layer_name,

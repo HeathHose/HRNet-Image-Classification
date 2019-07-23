@@ -245,7 +245,7 @@ class HighResolutionModule(nn.Module):
         return x_fuse
 
 class NAS_FPNModule(nn.Module):
-    FPN_CHANNEL = 384
+    FPN_CHANNEL = 256
     def __init__(self):
         super(NAS_FPNModule, self).__init__()
         self.sigmoid = nn.Sigmoid()
@@ -256,22 +256,22 @@ class NAS_FPNModule(nn.Module):
         )
 
     def gp(self, fm1, fm2):
-        global_ctx = torch.mean(fm1, dim=[1,2], keepdim=True)
+        global_ctx = torch.mean(fm1, dim=[2,3], keepdim=True)
         global_ctx = self.sigmoid(global_ctx)
-        output = (global_ctx * fm2) + F.upsample(fm1, fm2.size(), mode='bilinear', align_corners=False)
+        output = (global_ctx * fm2) + F.upsample(fm1, fm2.size()[2:], mode='bilinear', align_corners=False)
         return output
 
     def sum_fm(self, fm1, fm2):
-        output = fm2 + F.upsample(fm1, fm2.size(), mode='bilinear', align_corners=False)
+        output = fm2 + F.upsample(fm1, fm2.size()[2:], mode='bilinear', align_corners=False)
         return output
 
     def forward(self, x):
         # P2
-        GP_P5_P3 = self.gp(x[3], x[1])
+        GP_P5_P3 = self.gp(x["P5"], x["P3"])
         GP_P5_P3_RCB = self.rcb_layer(GP_P5_P3)
-        SUM1 = self.sum_fm(GP_P5_P3_RCB, x[1])
+        SUM1 = self.sum_fm(GP_P5_P3_RCB, x["P3"])
         SUM1_RCB = self.rcb_layer(SUM1)
-        SUM2 = self.sum_fm(SUM1_RCB, x[0])
+        SUM2 = self.sum_fm(SUM1_RCB, x["P2"])
         SUM2_RCB = self.rcb_layer(SUM2)
 
         # P3
@@ -280,15 +280,15 @@ class NAS_FPNModule(nn.Module):
 
         # P4
         SUM3_RCB_GP = self.gp(SUM2_RCB, SUM3_RCB)
-        SUM4 = self.sum_fm(SUM3_RCB_GP, x[2])
+        SUM4 = self.sum_fm(SUM3_RCB_GP, x["P4"])
         SUM4_RCB = self.rcb_layer(SUM4)
 
         # P6
         SUM4_RCB_GP = self.gp(SUM1_RCB, SUM4_RCB)
-        SUM5 = self.sum_fm(SUM4_RCB_GP, x[4])
+        SUM5 = self.sum_fm(SUM4_RCB_GP, x["P6"])
         SUM5_RCB = self.rcb_layer(SUM5)
 
-        SUM5_RCB_resize = F.upsample(SUM5_RCB, x[3].size(), mode='bilinear', align_corners=False)
+        SUM5_RCB_resize = F.upsample(SUM5_RCB, x["P5"].size()[2:], mode='bilinear', align_corners=False)
         SUM4_RCB_GP1 = self.gp(SUM4_RCB, SUM5_RCB_resize)
         SUM4_RCB_GP1_RCB = self.rcb_layer(SUM4_RCB_GP1)  # P5
         pyramid_dict = {'P2': SUM2_RCB, 'P3': SUM3_RCB, 'P4': SUM4_RCB,
@@ -298,29 +298,29 @@ class NAS_FPNModule(nn.Module):
 
 
 class FPNModule(nn.Module):
-    FPN_CHANNEL = 384
-    def __init__(self, num_inchannels, num_channels):
+    FPN_CHANNEL = 256
+    def __init__(self, num_inchannels):
         super(FPNModule, self).__init__()
-        self.conv1 = nn.Conv2d(num_inchannels[-1], num_channels[-1], kernel_size=1, stride=1)
+        self.conv1 = nn.Conv2d(num_inchannels[-1], self.FPN_CHANNEL, kernel_size=1, stride=1)
 
-        self.reduce_dim = self._make_reduce_dim(num_inchannels, num_channels)
-        self.fusion_pyramid = self._make_fusion_pyramid(num_inchannels, num_channels)
+        self.reduce_dim = self._make_reduce_dim(num_inchannels)
+        self.fusion_pyramid = self._make_fusion_pyramid(num_inchannels)
         self.avg_pool = nn.AvgPool2d(kernel_size=[1, 1], stride=2)
 
-    def _make_reduce_dim(self, num_inchannels, num_channels):
+    def _make_reduce_dim(self, num_inchannels):
         reduce_dim_layers = []
-        for i in range(num_inchannels, 1, -1):
-            reduce_dim_layer = nn.Conv2d(num_inchannels[i], num_channels[i], kernel_size=1, stride=1)
+        for i in range(0, len(num_inchannels)):
+            reduce_dim_layer = nn.Conv2d(num_inchannels[i], self.FPN_CHANNEL, kernel_size=1, stride=1)
             reduce_dim_layers.append(reduce_dim_layer)
             if i == len(num_inchannels) - 1:
                 reduce_dim_layers.append(None)
         return nn.ModuleList(reduce_dim_layers)
 
-    def _make_fusion_pyramid(self, num_inchannels, num_channels):
+    def _make_fusion_pyramid(self, num_inchannels):
         fusion_pyramid_layers = []
-        for i in range(num_inchannels+1, 1, -1):
+        for i in range(0, len(num_inchannels)):
             fusion_pyramid_layer = nn.Sequential(
-                nn.Conv2d(num_inchannels[i], num_channels[i], kernel_size=1, stride=1),
+                nn.Conv2d(self.FPN_CHANNEL, self.FPN_CHANNEL, kernel_size=1, stride=1),
                 nn.ReLU(inplace=True)
             )
             fusion_pyramid_layers.append(fusion_pyramid_layer)
@@ -332,11 +332,11 @@ class FPNModule(nn.Module):
         P5 = self.conv1(x[3])
         pyramid_dict["P5"] = P5
         for level in range(4, 1, -1):  # build [P4, P3, P2]
-            upsample_p = F.upsample(pyramid_dict["P%d" % (level + 1)], x[level-1].size(), mode='bilinear', align_corners=False)
-            pyramid_dict['P%d' % level] = 0.5*upsample_p + 0.5*self.reduce_dim[level](x[level-1])
+            upsample_p = F.upsample(pyramid_dict["P%d" % (level + 1)], x[level-2].size()[2:], mode='bilinear', align_corners=False)
+            pyramid_dict['P%d' % level] = 0.5*upsample_p + 0.5*self.reduce_dim[level-2](x[level-2])
 
         for level in range(5, 1, -1):
-            pyramid_dict['P%d' % level] = self.fusion_pyramid[level](pyramid_dict["P%d" % (level + 1)])
+            pyramid_dict['P%d' % level] = self.fusion_pyramid[level-2](pyramid_dict["P%d" % (level)])
         # Default P6 exists
         pyramid_dict["P6"] = self.avg_pool(P5)
         return pyramid_dict
@@ -542,7 +542,7 @@ class HighResolutionNet(nn.Module):
         modules = []
         for i in range(num_modules):
             modules.append(
-                FPNModule(num_inchannels, num_channels)
+                FPNModule(num_inchannels)
         )
         return nn.Sequential(*modules), num_channels
 
@@ -591,7 +591,7 @@ class HighResolutionNet(nn.Module):
 
         pyramid_dict = self.fpn(y_list)
         pyramid_dict = self.nas_fpn(pyramid_dict)
-        y_list = pyramid_dict.values()
+        y_list = list(pyramid_dict.values())
         
         # Classification Head
         y = self.incre_modules[0](y_list[0])
