@@ -275,7 +275,7 @@ class NAS_FPNModule(nn.Module):
         SUM2_RCB = self.rcb_layer(SUM2)
 
         # P3
-        SUM3 = self.sum_fm(SUM2_RCB)
+        SUM3 = self.sum_fm(SUM2_RCB, SUM1_RCB)
         SUM3_RCB = self.rcb_layer(SUM3)
 
         # P4
@@ -396,7 +396,7 @@ class HighResolutionNet(nn.Module):
         self.fpn, pre_fpn_channels = self._make_fpn(self.fpn_cfg, pre_stage_channels)
 
         self.nas_fpn_cfg = cfg['MODEL']['EXTRA']['NAS_FPN']
-        self.nas_fpn, pre_nas_fpn_channels = self._make_nas_fpn(self.nas_fpn_cfg, pre_fpn_channels)
+        self.nas_fpn, pre_nas_fpn_channels = self._make_nas_fpn(self.nas_fpn_cfg)
 
         # Classification Head
         self.incre_modules, self.downsamp_modules, \
@@ -406,8 +406,8 @@ class HighResolutionNet(nn.Module):
 
     def _make_head(self, pre_stage_channels):
         head_block = Bottleneck
-        head_channels = [32, 64, 128, 256]
-
+        #head_channels = [32, 64, 128, 256]
+        head_channels = [256, 256, 256, 256, 256]
         # Increasing the #channels on each resolution 
         # from C, 2C, 4C, 8C to 128, 256, 512, 1024
         incre_modules = []
@@ -489,7 +489,7 @@ class HighResolutionNet(nn.Module):
 
         return nn.ModuleList(transition_layers)
 
-    def _make_layer(self, block, inplanes, planes, blocks, stride=1):
+    def _make_layer(self,   block, inplanes, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or inplanes != planes * block.expansion:
             downsample = nn.Sequential(
@@ -590,8 +590,9 @@ class HighResolutionNet(nn.Module):
         y_list = self.stage4(x_list)
 
         pyramid_dict = self.fpn(y_list)
-        y_list = self.nas_fpn(pyramid_dict)
-
+        pyramid_dict = self.nas_fpn(pyramid_dict)
+        y_list = pyramid_dict.values()
+        
         # Classification Head
         y = self.incre_modules[0](y_list[0])
         for i in range(len(self.downsamp_modules)):
