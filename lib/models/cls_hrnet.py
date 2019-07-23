@@ -301,16 +301,16 @@ class FPNModule(nn.Module):
     FPN_CHANNEL = 256
     def __init__(self, num_inchannels):
         super(FPNModule, self).__init__()
-        self.conv1 = nn.Conv2d(num_inchannels[-1], self.FPN_CHANNEL, kernel_size=1, stride=1)
+        self.conv1 = nn.Conv2d(num_inchannels[-1], self.FPN_CHANNEL, kernel_size=1, bias=False)
 
         self.reduce_dim = self._make_reduce_dim(num_inchannels)
         self.fusion_pyramid = self._make_fusion_pyramid(num_inchannels)
-        self.avg_pool = nn.AvgPool2d(kernel_size=[1, 1], stride=2)
+        self.avg_pool = nn.AvgPool2d(kernel_size=1, stride=2)
 
     def _make_reduce_dim(self, num_inchannels):
         reduce_dim_layers = []
         for i in range(0, len(num_inchannels)):
-            reduce_dim_layer = nn.Conv2d(num_inchannels[i], self.FPN_CHANNEL, kernel_size=1, stride=1)
+            reduce_dim_layer = nn.Conv2d(num_inchannels[i], self.FPN_CHANNEL, kernel_size=1, bias=False)
             reduce_dim_layers.append(reduce_dim_layer)
             if i == len(num_inchannels) - 1:
                 reduce_dim_layers.append(None)
