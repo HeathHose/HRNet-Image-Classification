@@ -149,7 +149,7 @@ def main():
     torch.cuda.set_device(args.local_rank)
     if distributed_is_initialized():
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank).cuda()
+            model.cuda(), device_ids=[args.local_rank], output_device=args.local_rank)
     else:
         model = torch.nn.DataParallel(model, device_ids=gpus).cuda()
 
@@ -209,7 +209,6 @@ def main():
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=config.TRAIN.BATCH_SIZE_PER_GPU,
-        shuffle=True,
         sampler=sampler,
         num_workers=config.WORKERS,
         pin_memory=True
