@@ -43,6 +43,10 @@ def distributed_is_initialized():
     if distributed.is_available():
         if distributed.is_initialized():
             return True
+        else:
+            print("distributed not init")
+    else:
+        print("distributed not avail")
     return False
 
 def parse_args():
@@ -75,27 +79,26 @@ def parse_args():
                         type=str,
                         default='')
 
+    #distributed
     parser.add_argument('-s', '--world-size',
                         type=int,
                         default=1,
                         help='Number of processes participating in the job.')
-
     parser.add_argument('-r', '--rank',
                         type=int,
                         default=0,
                         help='Rank of the current process.')
-
     parser.add_argument('--backend',
                         type=str,
-                        default='gloo',
+                        default='nccl',
                         help='Name of the backend to use.')
-
-    parser.add_argument(
-        '-i',
-        '--init-method',
-        type=str,
-        default='tcp://127.0.0.1:23456',
-        help='URL specifying how to initialize the package.')
+    parser.add_argument('-i',
+                        '--init-method',
+                        type=str,
+                        default='env://',
+                        help='URL specifying how to initialize the package.')
+    #it will be provided by this module
+    parser.add_argument("--local_rank", type=int)
 
     args = parser.parse_args()
     update_config(config, args)
@@ -104,14 +107,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-
-    if args.world_size > 1:
-        distributed.init_process_group(
-            backend=args.backend,
-            world_size=args.world_size,
-            init_method=args.init_method,
-            rank=args.rank,
-        )
+    distributed.init_process_group(
+        backend=args.backend,
+        init_method=args.init_method,
+    )
 
     logger, final_output_dir, tb_log_dir = create_logger(
         config, args.cfg, 'train')
@@ -126,15 +125,16 @@ def main():
 
     model = eval('models.'+config.MODEL.NAME+'_bn.get_cls_net')(
         config)
-
-    dump_input = torch.rand(
-        (1, 3, config.MODEL.IMAGE_SIZE[1], config.MODEL.IMAGE_SIZE[0])
-    )
-    logger.info(get_model_summary(model, dump_input))
+    # this code should be crossed out in distribute pytorch
+    # dump_input = torch.rand(
+    #     (1, 3, config.MODEL.IMAGE_SIZE[1], config.MODEL.IMAGE_SIZE[0])
+    # )
+    # logger.info(get_model_summary(model, dump_input))
 
     # copy model file
     this_dir = os.path.dirname(__file__)
     models_dst_dir = os.path.join(final_output_dir, 'models')
+    print(models_dst_dir)
     if os.path.exists(models_dst_dir):
         shutil.rmtree(models_dst_dir)
     shutil.copytree(os.path.join(this_dir, '../lib/models'), models_dst_dir)
@@ -146,8 +146,9 @@ def main():
     }
 
     gpus = list(config.GPUS)
+    torch.cuda.set_device(args.local_rank)
     if distributed_is_initialized():
-        model = torch.nn.parallel.DistributedDataParallel(model)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=args.local_rank, output_device=args.local_rank)
     else:
         model = torch.nn.DataParallel(model, device_ids=gpus).cuda()
 
@@ -206,7 +207,7 @@ def main():
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=config.TRAIN.BATCH_SIZE_PER_GPU*len(gpus),
+        batch_size=config.TRAIN.BATCH_SIZE_PER_GPU,
         shuffle=True,
         sampler=sampler,
         num_workers=config.WORKERS,
@@ -220,7 +221,7 @@ def main():
             transforms.ToTensor(),
             normalize,
         ])),
-        batch_size=config.TEST.BATCH_SIZE_PER_GPU*len(gpus),
+        batch_size=config.TEST.BATCH_SIZE_PER_GPU,
         shuffle=False,
         num_workers=config.WORKERS,
         pin_memory=True
