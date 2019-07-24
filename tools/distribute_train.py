@@ -148,7 +148,8 @@ def main():
     gpus = list(config.GPUS)
     torch.cuda.set_device(args.local_rank)
     if distributed_is_initialized():
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=args.local_rank, output_device=args.local_rank)
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.local_rank], output_device=args.local_rank).cuda()
     else:
         model = torch.nn.DataParallel(model, device_ids=gpus).cuda()
 
